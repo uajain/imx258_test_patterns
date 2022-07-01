@@ -1,0 +1,75 @@
+From 852da3449758ffd44edbaac59db8ad7106418a60 Mon Sep 17 00:00:00 2001
+From: Umang Jain <umang.jain@ideasonboard.com>
+Date: Fri, 1 Jul 2022 03:35:48 +0530
+Subject: [PATCH] v4l2-ctl: Update test-pattern on each buffer->file write
+
+Signed-off-by: Umang Jain <umang.jain@ideasonboard.com>
+---
+ utils/v4l2-ctl/v4l2-ctl-streaming.cpp | 29 +++++++++++++++++++++++++++
+ utils/v4l2-ctl/v4l2-ctl.cpp           |  3 +--
+ 2 files changed, 30 insertions(+), 2 deletions(-)
+
+diff --git a/utils/v4l2-ctl/v4l2-ctl-streaming.cpp b/utils/v4l2-ctl/v4l2-ctl-streaming.cpp
+index 05de44d7..0056eda1 100644
+--- a/utils/v4l2-ctl/v4l2-ctl-streaming.cpp
++++ b/utils/v4l2-ctl/v4l2-ctl-streaming.cpp
+@@ -60,6 +60,7 @@ static bool output_field_alt;
+ static unsigned bpl_out[VIDEO_MAX_PLANES];
+ static bool last_buffer = false;
+ static codec_ctx *ctx;
++static __s32 test_pattern = 0;
+ 
+ static unsigned int cropped_width;
+ static unsigned int cropped_height;
+@@ -1380,6 +1381,34 @@ static void write_buffer_to_file(cv4l_fd &fd, cv4l_queue &q, cv4l_buffer &buf,
+ 	}
+ 	if (host_fd_to >= 0)
+ 		fflush(fout);
++
++	/* HACK: After each frame written to file, update the test pattern. */
++	int subdev_fd = open("/dev/v4l-subdev4", O_RDWR);
++
++	struct v4l2_control ctrl = { 0x009f0903, test_pattern };
++	if (doioctl(subdev_fd, VIDIOC_S_CTRL, &ctrl)) {
++		fprintf(stderr, "Error setting test pattern: %s\n",
++			strerror(errno));
++	}
++
++	ctrl = { 0x009f0903, -1 };
++	if (doioctl(subdev_fd, VIDIOC_G_CTRL, &ctrl)) {
++		fprintf(stderr, "Error getting test pattern: %s\n",
++			strerror(errno));
++	}
++
++	if (ctrl.value != test_pattern)
++		fprintf(stderr, "Test pattern doesn't match\n");
++	else
++		fprintf(stdout, "Test pattern applied: #%d\n", ctrl.value);
++
++
++	close(subdev_fd);
++
++	if (test_pattern < 4)
++		test_pattern++;
++	else
++		test_pattern = 0;
+ #endif
+ }
+ 
+diff --git a/utils/v4l2-ctl/v4l2-ctl.cpp b/utils/v4l2-ctl/v4l2-ctl.cpp
+index 6bf0a1c7..aabab427 100644
+--- a/utils/v4l2-ctl/v4l2-ctl.cpp
++++ b/utils/v4l2-ctl/v4l2-ctl.cpp
+@@ -1321,8 +1321,7 @@ int main(int argc, char **argv)
+ 		std::exit(EXIT_FAILURE);
+ 	}
+ 	is_subdev = type == MEDIA_TYPE_SUBDEV;
+-	if (is_subdev)
+-		options[OptUseWrapper] = 0;
++	options[OptUseWrapper] = 0;
+ 	c_fd.s_direct(!options[OptUseWrapper]);
+ 	c_out_fd.s_direct(!options[OptUseWrapper]);
+ 	c_exp_fd.s_direct(!options[OptUseWrapper]);
+-- 
+2.31.1
+
